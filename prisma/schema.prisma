@@ -1,0 +1,246 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "library"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  USER
+  COORDINATOR
+  ACCOUNTANT
+  FINANCE
+  FREELANCER
+}
+
+enum InvoiceType {
+  SALES
+  COST
+}
+
+enum InvoiceStatus {
+  PENDING
+  PAID
+  REJECTED
+  VERIFIED
+  WITHDRAW
+}
+
+enum PaymentRequestStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  PAID
+}
+
+enum LegalRequestStatus {
+  SUBMITTED
+  IN_REVIEW
+  CLOSED
+}
+
+enum SuggestionStatus {
+  NEW
+  IN_REVIEW
+  RESOLVED
+}
+
+model User {
+  id             String   @id @default(uuid())
+  email          String   @unique
+  password       String
+  role           Role     @default(USER)
+  beneficiaryNumber Int?
+  firstName      String?
+  lastName       String?
+  phone          String?
+  pesel          String?   @unique
+  companyName    String?
+  affiliatedBy   String?
+  coordinatorId  String?
+  ownAffiliation  String?  @unique
+  bankAccount     String?
+  nextPaymentDate DateTime?
+  legalConsentsAt DateTime?
+  emailVerifiedAt DateTime?
+  emailVerificationToken String? @unique
+  emailVerificationSentAt DateTime?
+  subscriptionFee Decimal  @db.Decimal(10, 2) @default(365.00)
+  accountBalance  Decimal  @db.Decimal(10, 2) @default(0.00)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  invoices        Invoice[]
+  paymentRequests PaymentRequest[]
+  contractors     Contractor[]
+  documents       Document[]
+  legalRequests   LegalRequest[]
+  suggestions     Suggestion[]
+
+  sentMessages     Message[] @relation("SentMessages")
+  receivedMessages Message[] @relation("ReceivedMessages")
+
+  @@index([email])
+  @@index([role])
+  @@index([beneficiaryNumber])
+  @@index([coordinatorId])
+}
+
+model LegalRequest {
+  id            String            @id @default(uuid())
+  description   String            @db.Text
+  wantsMeeting  Boolean           @default(false)
+  attachmentUrl String?
+  status        LegalRequestStatus @default(SUBMITTED)
+
+  userId        String
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Suggestion {
+  id            String           @id @default(uuid())
+  category      String
+  subject       String
+  description   String           @db.Text
+  attachmentUrl String?
+  status        SuggestionStatus @default(NEW)
+
+  userId        String
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Invoice {
+  id             String        @id @default(uuid())
+  invoiceNumber  String        @unique
+  type           InvoiceType
+  status         InvoiceStatus @default(PENDING)
+  issueDate      DateTime
+  dueDate        DateTime?
+  netAmount      Decimal       @db.Decimal(10, 2)
+  grossAmount    Decimal       @db.Decimal(10, 2)
+  vatAmount      Decimal       @db.Decimal(10, 2)
+  currency       String        @default("PLN")
+  sellerName     String
+  sellerNip      String?
+  buyerName      String
+  buyerNip       String?
+  buyerEmail     String?
+
+  description    String?       @db.Text
+  fileUrl        String?
+
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([type])
+  @@index([issueDate])
+}
+
+model PaymentRequest {
+  id             String               @id @default(uuid())
+  requestNumber  String               @unique
+  status         PaymentRequestStatus @default(DRAFT)
+  amount         Decimal              @db.Decimal(10, 2)
+  currency       String               @default("PLN")
+  title          String
+  description    String?              @db.Text
+
+  bankAccount    String?
+  formData       Json?
+
+  userId         String
+  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Message {
+  id         String   @id @default(uuid())
+  content    String   @db.Text
+  isRead     Boolean  @default(false)
+
+  senderId   String
+  sender     User     @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+
+  receiverId String
+  receiver   User     @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  createdAt  DateTime @default(now())
+
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([createdAt])
+}
+
+model Contractor {
+  id             String   @id @default(uuid())
+  contractorName String
+  nip            String?
+  email          String?
+  phone          String?
+
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Event {
+  id        String   @id @default(uuid())
+  title     String
+  day       String
+  month     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Document {
+  id           String   @id @default(uuid())
+  originalName String
+  fileUrl      String
+  sizeBytes    Int
+  
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+}
