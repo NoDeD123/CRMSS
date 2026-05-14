@@ -80,4 +80,4 @@ async function handler(req, res) {
   }
 }
 
-export default withAuth(handler, ['USER', 'COORDINATOR', 'ACCOUNTANT']);
+export default withAuth(handler, ['USER', 'FREELANCER', 'COORDINATOR', 'ACCOUNTANT']);

@@ -248,6 +248,7 @@ export default function PanelLayout({ children, role = 'user' }) {
     },
     { name: 'Wypłaty', href: '/panel/freelancer/paychecks', icon: Banknote },
     { name: 'Ustawienia', href: '/panel/freelancer/settings', icon: Settings },
+    { name: 'Sugestie', href: '/panel/freelancer/suggestions', icon: Lightbulb },
   ];
 
   const navigation =

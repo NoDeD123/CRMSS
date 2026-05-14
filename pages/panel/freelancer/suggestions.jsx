@@ -17,7 +17,7 @@ const SUGGESTION_CATEGORY_API_VALUES = [
 
 const SUGGESTION_CATEGORY_TP_KEYS = ['catTechnical', 'catFeature', 'catOrg', 'catOther'];
 
-function UserSuggestionsBody() {
+function FreelancerSuggestionsBody() {
   const { tp } = useBeneficiaryPanelLocale();
   const [formData, setFormData] = useState({
     category: SUGGESTION_CATEGORY_API_VALUES[0],
@@ -206,10 +206,10 @@ function UserSuggestionsBody() {
   );
 }
 
-export default function UserSuggestions() {
+export default function FreelancerSuggestions() {
   return (
-    <PanelLayout role="user">
-      <UserSuggestionsBody />
+    <PanelLayout role="freelancer">
+      <FreelancerSuggestionsBody />
     </PanelLayout>
   );
 }
