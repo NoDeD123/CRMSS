@@ -56,26 +56,22 @@ async function handler(req, res) {
 
     const userId = req.user.userId;
 
-    const pendingInvoices = await prisma.invoice.count({
-      where: { userId, status: 'PENDING' }
-    });
-
-    const unreadMessages = await prisma.message.count({
-      where: { receiverId: userId, isRead: false }
-    });
-
-    const events = await prisma.event.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: 4
-    });
-
-    // --- LOGIKA WYLICZANIA SALDA W LOCIE ---
-    // User logic: Invoice with status PAID means "Zapłacona przez klienta" (saldo rośnie, beneficjent może wypłacić)
-    // Invoice with status WITHDRAW means "Wypłacona przez fundacje na konto beneficjenta" (już nie jest PAID, wypada z salda).
-    const sumSales = await prisma.invoice.aggregate({
-      where: { userId, type: 'SALES', status: 'PAID' },
-      _sum: { grossAmount: true }
-    });
+    const [pendingInvoices, unreadMessages, events, sumSales] = await Promise.all([
+      prisma.invoice.count({
+        where: { userId, status: 'PENDING' }
+      }),
+      prisma.message.count({
+        where: { receiverId: userId, isRead: false }
+      }),
+      prisma.event.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 4
+      }),
+      prisma.invoice.aggregate({
+        where: { userId, type: 'SALES', status: 'PAID' },
+        _sum: { grossAmount: true }
+      })
+    ]);
     
     const calculatedBalance = Number(sumSales._sum.grossAmount || 0);
 

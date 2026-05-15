@@ -8,27 +8,27 @@ async function handler(req, res) {
 
   if (req.method === 'GET') {
     try {
-      const sumSales = await prisma.invoice.aggregate({
-        where: { userId, type: 'SALES', status: 'PAID' },
-        _sum: { grossAmount: true }
-      });
+      const [sumSales, sumPayouts, payouts] = await Promise.all([
+        prisma.invoice.aggregate({
+          where: { userId, type: 'SALES', status: 'PAID' },
+          _sum: { grossAmount: true }
+        }),
+        prisma.paymentRequest.aggregate({
+          where: {
+            userId,
+            status: { in: ['SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'PAID'] }
+          },
+          _sum: { amount: true }
+        }),
+        prisma.paymentRequest.findMany({
+          where: { userId },
+          orderBy: { createdAt: 'desc' }
+        })
+      ]);
+
       const income = Number(sumSales._sum.grossAmount || 0);
-
-      const sumPayouts = await prisma.paymentRequest.aggregate({
-        where: { 
-          userId, 
-          status: { in: ['SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'PAID'] } 
-        },
-        _sum: { amount: true }
-      });
       const pendingPayouts = Number(sumPayouts._sum.amount || 0);
-
       const calculatedBalance = income - pendingPayouts;
-
-      const payouts = await prisma.paymentRequest.findMany({
-        where: { userId },
-        orderBy: { createdAt: 'desc' }
-      });
 
       return res.status(200).json(apiResponse({
         accountBalance: calculatedBalance.toFixed(2),
@@ -49,21 +49,22 @@ async function handler(req, res) {
       }
 
       // Check balance safely
-      const sumSales = await prisma.invoice.aggregate({
-        where: { userId, type: 'SALES', status: 'PAID' },
-        _sum: { grossAmount: true }
-      });
+      const [sumSales, sumPayouts] = await Promise.all([
+        prisma.invoice.aggregate({
+          where: { userId, type: 'SALES', status: 'PAID' },
+          _sum: { grossAmount: true }
+        }),
+        prisma.paymentRequest.aggregate({
+          where: {
+            userId,
+            status: { in: ['SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'PAID'] }
+          },
+          _sum: { amount: true }
+        })
+      ]);
+
       const income = Number(sumSales._sum.grossAmount || 0);
-
-      const sumPayouts = await prisma.paymentRequest.aggregate({
-        where: { 
-          userId, 
-          status: { in: ['SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'PAID'] } 
-        },
-        _sum: { amount: true }
-      });
       const pendingPayouts = Number(sumPayouts._sum.amount || 0);
-
       const availableBalance = income - pendingPayouts;
 
       if (withdrawAmount > availableBalance) {
