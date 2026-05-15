@@ -1,16 +1,4 @@
-import mysql from 'mysql2/promise';
-
-// Konfiguracja bazy danych
-const dbConfig = {
-  host: 'strefastartu.pl',
-  user: 'noded',
-  password: 'farmerek1',
-  database: 'strefastartu',
-  port: 3306,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
-};
+import { getPool } from '../../lib/db.js';
 
 // Funkcja generująca unikalny 5-znakowy kod afiliacyjny
 async function generateAffiliateCode(connection) {
@@ -51,11 +39,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ message: 'Method not allowed' });
   }
 
-  let connection;
-  
   try {
-    // Połączenie z bazą danych
-    connection = await mysql.createConnection(dbConfig);
+    const pool = getPool();
     
     const {
       firstName,
@@ -81,7 +66,7 @@ export default async function handler(req, res) {
     }
 
     // Sprawdzenie czy email już istnieje
-    const [existingUser] = await connection.execute(
+    const [existingUser] = await pool.execute(
       'SELECT id FROM ohp_registrations WHERE email = ?',
       [email]
     );
@@ -93,10 +78,10 @@ export default async function handler(req, res) {
     }
 
     // Generuj unikalny kod afiliacyjny
-    const affiliateCode = await generateAffiliateCode(connection);
+    const affiliateCode = await generateAffiliateCode(pool);
 
     // Wstawienie danych do bazy
-    const [result] = await connection.execute(
+    const [result] = await pool.execute(
       `INSERT INTO ohp_registrations 
        (first_name, last_name, email, phone, voivodeship, affiliate_code) 
        VALUES (?, ?, ?, ?, ?, ?)`,
@@ -129,9 +114,5 @@ export default async function handler(req, res) {
       message: 'Wystąpił błąd podczas zapisywania rejestracji',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
-  } finally {
-    if (connection) {
-      await connection.end();
-    }
   }
 }

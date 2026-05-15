@@ -11,28 +11,39 @@ async function handler(req, res) {
   try {
     const coordinatorId = req.user.userId;
 
-    // Pobranie beneficjentow wraz z ich najnowsza wiadomoscia odebrana lub wyslana przez koordynatora
-    const users = await prisma.user.findMany({
-      where: { role: 'USER' },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        ownAffiliation: true,
-        sentMessages: {
-          where: { receiverId: coordinatorId },
-          orderBy: { createdAt: 'desc' },
-          take: 1
-        },
-        receivedMessages: {
-          where: { senderId: coordinatorId },
-          orderBy: { createdAt: 'desc' },
-          take: 1
+    const [users, unreadGroups] = await Promise.all([
+      prisma.user.findMany({
+        where: { role: 'USER' },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          ownAffiliation: true,
+          sentMessages: {
+            where: { receiverId: coordinatorId },
+            orderBy: { createdAt: 'desc' },
+            take: 1
+          },
+          receivedMessages: {
+            where: { senderId: coordinatorId },
+            orderBy: { createdAt: 'desc' },
+            take: 1
+          }
         }
-      }
-    });
+      }),
+      prisma.message.groupBy({
+        by: ['senderId'],
+        where: { receiverId: coordinatorId, isRead: false },
+        _count: { id: true }
+      })
+    ]);
 
-    const mappedUsers = users.map(user => {
+    const unreadMap = new Map();
+    for (const group of unreadGroups) {
+      unreadMap.set(group.senderId, group._count.id);
+    }
+
+    const resolvedUsers = users.map(user => {
       const sent = user.sentMessages[0];
       const received = user.receivedMessages[0];
 
@@ -43,31 +54,16 @@ async function handler(req, res) {
         lastMessage = sent || received || null;
       }
 
-      // Count unread from this user specifically to this coordinator
-      const unreadCountPromise = prisma.message.count({
-        where: { senderId: user.id, receiverId: coordinatorId, isRead: false }
-      });
-
       return {
         id: user.id,
         unique_id: user.ownAffiliation || 'BRAK',
         name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Beneficjent',
         lastMsg: lastMessage ? lastMessage.createdAt : null,
         snippet: lastMessage ? lastMessage.content : null,
-        unreadCountPromise
+        unread: unreadMap.get(user.id) || 0
       };
     });
 
-    // Execute unread counts concurrently
-    const resolvedUsers = await Promise.all(
-      mappedUsers.map(async u => {
-        const unread = await u.unreadCountPromise;
-        delete u.unreadCountPromise;
-        return { ...u, unread };
-      })
-    );
-
-    // Separating into contacted and non-contacted
     const contactedBeneficiaries = resolvedUsers.filter(u => u.lastMsg !== null).sort((a, b) => b.lastMsg - a.lastMsg);
     const nonContactedBeneficiaries = resolvedUsers.filter(u => u.lastMsg === null).map(u => ({ ...u, status: 'Nowy' }));
 

@@ -1,27 +1,12 @@
-import mysql from 'mysql2/promise';
-
-// Konfiguracja bazy danych
-const dbConfig = {
-  host: 'strefastartu.pl',
-  user: 'noded',
-  password: 'farmerek1',
-  database: 'strefastartu',
-  port: 3306,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
-};
+import { getPool } from '../../lib/db.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method not allowed' });
   }
 
-  let connection;
-  
   try {
-    // Połączenie z bazą danych
-    connection = await mysql.createConnection(dbConfig);
+    const pool = getPool();
     
     const {
       fullName,
@@ -44,7 +29,7 @@ export default async function handler(req, res) {
     }
 
     // Sprawdzenie czy email już istnieje
-    const [existingUser] = await connection.execute(
+    const [existingUser] = await pool.execute(
       'SELECT id FROM form_submissions WHERE email = ?',
       [email]
     );
@@ -56,7 +41,7 @@ export default async function handler(req, res) {
     }
 
     // Wstawienie danych do bazy
-    const [result] = await connection.execute(
+    const [result] = await pool.execute(
       `INSERT INTO form_submissions 
        (full_name, email, phone, age, topic, referral_source, referral_code, referral_other, accept_rodo, accept_privacy) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -89,23 +74,18 @@ export default async function handler(req, res) {
     console.error('Błąd podczas zapisywania do bazy:', error);
     
     // Opcjonalnie: zapisz błąd do tabeli form_errors
-    if (connection) {
-      try {
-        await connection.execute(
-          'INSERT INTO form_errors (form_data, error_message) VALUES (?, ?)',
-          [JSON.stringify(req.body), error.message]
-        );
-      } catch (logError) {
-        console.error('Błąd podczas logowania błędu:', logError);
-      }
+    try {
+      const pool = getPool();
+      await pool.execute(
+        'INSERT INTO form_errors (form_data, error_message) VALUES (?, ?)',
+        [JSON.stringify(req.body), error.message]
+      );
+    } catch (logError) {
+      console.error('Błąd podczas logowania błędu:', logError);
     }
     
     res.status(500).json({ 
       message: 'Wystąpił błąd podczas zapisywania formularza' 
     });
-  } finally {
-    if (connection) {
-      await connection.end();
-    }
   }
 }

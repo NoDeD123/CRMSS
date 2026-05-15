@@ -1,17 +1,5 @@
-import mysql from 'mysql2/promise';
+import { getPool } from '../../lib/db.js';
 import * as XLSX from 'xlsx';
-
-// Konfiguracja bazy danych
-const dbConfig = {
-  host: 'strefastartu.pl',
-  user: 'noded',
-  password: 'farmerek1',
-  database: 'strefastartu',
-  port: 3306,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
-};
 
 // Hasło do dostępu
 const CHECK_PASSWORD = 'TRI2026!';
@@ -31,17 +19,16 @@ export default async function handler(req, res) {
     });
   }
 
-  let connection;
-  
   try {
-    connection = await mysql.createConnection(dbConfig);
+    const pool = getPool();
     
     let ohpPersons = [];
     let fileName = '';
 
+    let allSubmissions = [];
+
     if (ohpId) {
-      // Eksport konkretnego użytkownika OHP
-      const [persons] = await connection.execute(
+      const [persons] = await pool.execute(
         `SELECT 
           id, first_name, last_name, email, phone, voivodeship, 
           affiliate_code, created_at
@@ -59,9 +46,20 @@ export default async function handler(req, res) {
 
       ohpPersons = persons;
       fileName = `OHP_${persons[0].affiliate_code}_${new Date().toISOString().split('T')[0]}.xlsx`;
+
+      const code = persons[0].affiliate_code;
+      const [subs] = await pool.execute(
+        `SELECT
+          id, full_name, email, phone, age,
+          referral_code, referral_source, topic, created_at
+        FROM form_submissions
+        WHERE referral_code = ?
+        ORDER BY created_at DESC`,
+        [code]
+      );
+      allSubmissions = subs;
     } else {
-      // Eksport wszystkich
-      const [persons] = await connection.execute(
+      const [persons] = await pool.execute(
         `SELECT 
           id, first_name, last_name, email, phone, voivodeship, 
           affiliate_code, created_at
@@ -71,57 +69,47 @@ export default async function handler(req, res) {
 
       ohpPersons = persons;
       fileName = `OHP_Wszystkie_${new Date().toISOString().split('T')[0]}.xlsx`;
+
+      const [subs] = await pool.execute(
+        `SELECT
+          id, full_name, email, phone, age,
+          referral_code, referral_source, topic, created_at
+        FROM form_submissions
+        ORDER BY created_at DESC`
+      );
+      allSubmissions = subs;
     }
 
-    // Dla każdej osoby OHP pobierz formularze
-    const ohpWithForms = await Promise.all(
-      ohpPersons.map(async (ohpPerson) => {
-        const affiliateCode = ohpPerson.affiliate_code;
-        
-        // Pobierz formularze
-        const [formSubmissions] = await connection.execute(
-          `SELECT 
-            id, full_name, email, phone, age, 
-            referral_code, referral_source, topic, created_at
-          FROM form_submissions 
-          WHERE referral_code = ?
-          ORDER BY created_at DESC`,
-          [affiliateCode]
-        );
-
-        // Sprawdź czy są beneficjentami
-        const formsWithStatus = await Promise.all(
-          (formSubmissions || []).map(async (submission) => {
-            const normalizedCode = affiliateCode.trim().toUpperCase();
-            let isBeneficiary = false;
-
-            try {
-              const [beneficiaryCheck] = await connection.execute(
-                `SELECT id 
-                 FROM beneficiaries 
-                 WHERE UPPER(TRIM(COALESCE(affiliated_by, ''))) = ? 
-                 OR UPPER(TRIM(COALESCE(affilated_by, ''))) = ?
-                 LIMIT 1`,
-                [normalizedCode, normalizedCode]
-              );
-              isBeneficiary = beneficiaryCheck.length > 0;
-            } catch (err) {
-              console.error('Błąd sprawdzania beneficjenta:', err);
-            }
-
-            return {
-              ...submission,
-              isBeneficiary: isBeneficiary ? 'Tak' : 'Nie'
-            };
-          })
-        );
-
-        return {
-          ...ohpPerson,
-          forms: formsWithStatus || []
-        };
-      })
+    const [allBeneficiaryCodes] = await pool.execute(
+      `SELECT DISTINCT
+        UPPER(TRIM(COALESCE(affiliated_by, ''))) as code1,
+        UPPER(TRIM(COALESCE(affilated_by, ''))) as code2
+       FROM beneficiaries`
     );
+
+    const beneficiaryCodeSet = new Set();
+    allBeneficiaryCodes.forEach(row => {
+      if (row.code1) beneficiaryCodeSet.add(row.code1);
+      if (row.code2) beneficiaryCodeSet.add(row.code2);
+    });
+
+    const ohpWithForms = ohpPersons.map(ohpPerson => {
+      const affiliateCode = ohpPerson.affiliate_code;
+      const normalizedCode = affiliateCode.trim().toUpperCase();
+
+      const formSubmissions = allSubmissions.filter(s => s.referral_code === affiliateCode);
+      const isBeneficiary = beneficiaryCodeSet.has(normalizedCode);
+
+      const formsWithStatus = formSubmissions.map(submission => ({
+        ...submission,
+        isBeneficiary: isBeneficiary ? 'Tak' : 'Nie'
+      }));
+
+      return {
+        ...ohpPerson,
+        forms: formsWithStatus
+      };
+    });
 
     // Przygotuj dane do Excela
     const excelData = [];
@@ -210,10 +198,6 @@ export default async function handler(req, res) {
       message: 'Wystąpił błąd podczas eksportu',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
-  } finally {
-    if (connection) {
-      await connection.end();
-    }
   }
 }
 
